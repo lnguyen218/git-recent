@@ -118,6 +118,7 @@ fn main() {
     println!("\x1b[?25h");
 
     let chosen = branches[selected].clone();
+    print!("\x1b[H\x1b[J");
     println!("\nChecking out branch: {chosen}");
 
     let status = Command::new("git")
