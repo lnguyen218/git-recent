@@ -5,31 +5,17 @@ use std::{
     process::{Command, Stdio},
 };
 
-fn config_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config/git-recent.json")
-}
-
 fn load_recent() -> Vec<String> {
-        let output = Command::new("git")
-            .args(["branch", "--sort=-committerdate"])
-            .output()
-            .expect("Failed to read branches");
-        let list = String::from_utf8_lossy(&output.stdout);
-         list
-            .lines()
-            .map(|s| s.trim().trim_start_matches('*').trim().to_string())
-            .filter(|s| !s.is_empty())
-            .take(5)
-            .collect()
-}
-
-fn save_recent(branches: &[String]) {
-    let path = config_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let _ = fs::write(path, serde_json::to_string_pretty(branches).unwrap());
+    let output = Command::new("git")
+        .args(["branch", "--sort=-committerdate"])
+        .output()
+        .expect("Failed to read branches");
+    let list = String::from_utf8_lossy(&output.stdout);
+    list.lines()
+        .map(|s| s.trim().trim_start_matches('*').trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(5)
+        .collect()
 }
 
 fn set_raw_mode(enable: bool) {
@@ -47,20 +33,6 @@ fn set_raw_mode(enable: bool) {
 fn main() {
     // Load 5 most recent branches
     let mut branches = load_recent();
-    if branches.is_empty() {
-        // Fallback: use last 5 from git reflog
-        let output = Command::new("git")
-            .args(["branch", "--sort=-committerdate"])
-            .output()
-            .expect("Failed to read branches");
-        let list = String::from_utf8_lossy(&output.stdout);
-        branches = list
-            .lines()
-            .map(|s| s.trim().trim_start_matches('*').trim().to_string())
-            .filter(|s| !s.is_empty())
-            .take(5)
-            .collect()
-    }
 
     if branches.is_empty() {
         println!("No branches found");
@@ -152,6 +124,5 @@ fn main() {
         if branches.len() > 5 {
             branches.truncate(5);
         }
-        // save_recent(&branches);
     }
 }
