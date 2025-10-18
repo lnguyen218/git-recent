@@ -1,7 +1,5 @@
-use std::{
-    io::{self, Read, Write},
-    process::{Command, Stdio},
-};
+use std::io::{self, Read, Write};
+use std::process::{Command, Stdio};
 
 fn load_recent() -> Vec<String> {
     let output = Command::new("git")
@@ -49,9 +47,7 @@ fn main() {
         for (i, b) in branches.iter().enumerate() {
             print!("\x1b[G");
             if i == selected {
-                print!("\x1b[44;30m");
-                println!("  {b}");
-                print!("\x1b[0m");
+                println!("  \x1b[44;30m{b}\x1b[0m");
             } else {
                 println!("  {b}")
             }
