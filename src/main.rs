@@ -1,3 +1,157 @@
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+
+fn config_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".config/git-recent.json")
+}
+
+fn load_recent() -> Vec<String> {
+        let output = Command::new("git")
+            .args(["branch", "--sort=-committerdate"])
+            .output()
+            .expect("Failed to read branches");
+        let list = String::from_utf8_lossy(&output.stdout);
+         list
+            .lines()
+            .map(|s| s.trim().trim_start_matches('*').trim().to_string())
+            .filter(|s| !s.is_empty())
+            .take(5)
+            .collect()
+}
+
+fn save_recent(branches: &[String]) {
+    let path = config_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(path, serde_json::to_string_pretty(branches).unwrap());
+}
+
+fn set_raw_mode(enable: bool) {
+    if cfg!(unix) {
+        let mode = if enable { "raw" } else { "-raw" };
+        let _ = Command::new("stty")
+            .arg(mode)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
 fn main() {
-    println!("Hello, world!");
+    // Load 5 most recent branches
+    let mut branches = load_recent();
+    if branches.is_empty() {
+        // Fallback: use last 5 from git reflog
+        let output = Command::new("git")
+            .args(["branch", "--sort=-committerdate"])
+            .output()
+            .expect("Failed to read branches");
+        let list = String::from_utf8_lossy(&output.stdout);
+        branches = list
+            .lines()
+            .map(|s| s.trim().trim_start_matches('*').trim().to_string())
+            .filter(|s| !s.is_empty())
+            .take(5)
+            .collect()
+    }
+
+    if branches.is_empty() {
+        println!("No branches found");
+        return;
+    }
+
+    set_raw_mode(true);
+    print!("\x1b[?25l");
+    io::stdout().flush().unwrap();
+
+    let mut selected = 0usize;
+
+    loop {
+        print!("\x1b[H\x1b[J");
+        println!("Select recent branch:\n");
+        for (i, b) in branches.iter().enumerate() {
+            print!("\x1b[G");
+            if i == selected {
+                print!("\x1b[44;30m");
+                println!("  {b}");
+                print!("\x1b[0m");
+            } else {
+                println!("  {b}")
+            }
+        }
+        io::stdout().flush().unwrap();
+
+        let mut buffer = [0u8; 3];
+        if let Ok(n) = io::stdin().read(&mut buffer) {
+            if n == 0 {
+                continue;
+            }
+            match buffer[0] {
+                27 => {
+                    // Escape sequences start with 27
+                    if n >= 3 {
+                        match buffer[2] {
+                            65 => {
+                                // Up Arrow
+                                if selected > 0 {
+                                    selected -= 1;
+                                }
+                            }
+                            66 => {
+                                // Down Arrow
+                                if selected + 1 < branches.len() {
+                                    selected += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                107 | 119 => {
+                    // k | w
+                    if selected > 0 {
+                        selected -= 1;
+                    }
+                }
+                106 | 115 => {
+                    // j | s
+                    if selected + 1 < branches.len() {
+                        selected += 1;
+                    }
+                }
+                10 | 13 | 32 => {
+                    // Enter key (\n or \r) or Spacebar
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    set_raw_mode(false);
+    println!("\x1b[?25h");
+
+    let chosen = branches[selected].clone();
+    println!("\nChecking out branch: {chosen}");
+
+    let status = Command::new("git")
+        .args(["checkout", &chosen])
+        .status()
+        .expect("Failed to run git");
+
+    if status.success() {
+        branches.retain(|b| b != &chosen);
+        branches.insert(0, chosen);
+        if branches.len() > 5 {
+            branches.truncate(5);
+        }
+        // save_recent(&branches);
+    }
 }
