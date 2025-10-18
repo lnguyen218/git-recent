@@ -14,6 +14,14 @@ fn load_recent() -> Vec<String> {
         .collect()
 }
 
+fn get_current_branch() -> String {
+    let output = Command::new("git")
+        .args(["branch", "--show-current"])
+        .output()
+        .expect("Failed to read branches");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 fn set_raw_mode(enable: bool) {
     if cfg!(unix) {
         let mode = if enable { "raw" } else { "-raw" };
@@ -29,6 +37,7 @@ fn set_raw_mode(enable: bool) {
 fn main() {
     // Load 5 most recent branches
     let mut branches = load_recent();
+    let current_branch = get_current_branch();
 
     if branches.is_empty() {
         println!("No branches found");
@@ -45,11 +54,15 @@ fn main() {
         print!("\x1b[H\x1b[J");
         println!("Select recent branch:\n");
         for (i, b) in branches.iter().enumerate() {
+            let mut show_current = " ";
+            if *b == current_branch {
+                show_current = "*"
+            }
             print!("\x1b[G");
             if i == selected {
-                println!("  \x1b[44;30m{b}\x1b[0m");
+                println!(" \x1b[44;30m{show_current} {b}\x1b[0m");
             } else {
-                println!("  {b}")
+                println!(" {show_current} {b}")
             }
         }
         io::stdout().flush().unwrap();
