@@ -171,6 +171,7 @@ impl App {
         let chosen = &self.branches[self.selected];
         println!("\x1b[H\x1b[J");
         println!("\nChecking out branch: {chosen}");
+        print!("\x1b[G");
 
         let status = Command::new("git").args(["checkout", chosen]).status()?;
         if status.success() {
