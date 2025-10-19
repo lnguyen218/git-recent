@@ -204,6 +204,7 @@ impl App {
         }
 
         // Show cursor (RawModeGuard will restore the other state)
+        drop(_raw_guard);
         print!("\x1b[?25h");
         io::stdout().flush()?;
 
