@@ -2,7 +2,6 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
-// const MAX_BRANCHES: usize = 5;
 const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
 /// Load up to MAX_BRANCHES most recently committed branches.
@@ -23,7 +22,6 @@ fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
             s.trim().trim_start_matches('*').trim().to_string()
         })
         .filter(|s| !s.is_empty())
-        // .take(MAX_BRANCHES)
         .collect();
 
     Ok(branches)
@@ -100,10 +98,6 @@ impl App {
     fn render(&self) -> io::Result<()> {
         // Clear screen and render menu
         print!("\x1b[H\x1b[J");
-        // TODO remove debug statement
-        // println!("selected: {}\n\x1b[G", self.selected.to_string());
-        // println!("offset: {}\n\x1b[G", self.offset.to_string());
-        // println!("branch length: {}\n\x1b[G", self.branches.len().to_string());
         println!("Select recent branch:\n");
         for (i, b) in self.branches[self.offset..(self.offset + NO_OF_VISIBLE_BRANCHES)]
             .iter()
