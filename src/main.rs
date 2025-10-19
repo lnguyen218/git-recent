@@ -7,7 +7,7 @@ const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
 /// Load up to MAX_BRANCHES most recently committed branches.
 /// Returns an error if the git command fails.
-fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
+fn load_recent() -> Result<(String, Vec<String>), Box<dyn Error>> {
     let output = Command::new("git")
         .args(["branch", "--sort=-committerdate"])
         .output()?;
@@ -16,6 +16,16 @@ fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let current_branch: String = stdout
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.starts_with('*'))
+        .collect::<Vec<_>>()[0]
+        .clone()
+        .trim_start_matches('*')
+        .trim()
+        .to_string();
+
     let branches: Vec<String> = stdout
         .lines()
         .map(|s| {
@@ -26,7 +36,7 @@ fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
         .take(MAX_BRANCHES)
         .collect();
 
-    Ok(branches)
+    Ok((current_branch, branches))
 }
 
 /// Get the current branch name (git branch --show-current).
@@ -149,7 +159,7 @@ impl App {
 
     /// Read a single key (or escape sequence) and update selected index accordingly.
     /// Returns true when user confirms selection (Enter/Space).
-        fn handle_input(&mut self) -> io::Result<Option<bool>> {
+    fn handle_input(&mut self) -> io::Result<Option<bool>> {
         // Buffer to accommodate escape sequences (e.g. "\x1b[<A>")
         let mut buffer = [0u8; 3];
         let n = io::stdin().read(&mut buffer)?;
@@ -167,36 +177,35 @@ impl App {
                         66 => self.handle_down(), // Down Arrow
                         _ => {}
                     }
-                    return Ok(None)
+                    return Ok(None);
                 } else {
                     // Single ESC press -> treat as cancel
-                    return Ok(Some(false))
+                    return Ok(Some(false));
                 }
             }
             107 | 119 => {
                 // k | w
                 self.handle_up();
-                return Ok(None)
+                return Ok(None);
             }
             106 | 115 => {
                 // j | s
                 self.handle_down();
-                return Ok(None)
+                return Ok(None);
             }
             10 | 13 | 32 => {
                 // Enter (\n or \r) or Space
-                return Ok(Some(true))
+                return Ok(Some(true));
             }
             113 | 81 => {
                 // q | Q -> quit/cancel
-                return Ok(Some(false))
+                return Ok(Some(false));
             }
             _ => return Ok(None),
         }
 
         Ok(Some(false))
     }
-
 
     fn checkout_selected(&mut self) -> Result<bool, Box<dyn Error>> {
         let chosen = &self.branches[self.selected];
@@ -216,7 +225,7 @@ impl App {
         }
     }
 
-        fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    fn run(&mut self) -> Result<(), Box<dyn Error>> {
         // Create RAII guard to restore terminal state on panic/exit.
         let _raw_guard = RawModeGuard::new();
 
@@ -255,7 +264,6 @@ impl App {
             Ok(())
         }
     }
-
 }
 
 fn main() {
@@ -266,12 +274,12 @@ fn main() {
 }
 
 fn run_app() -> Result<(), Box<dyn Error>> {
-    let branches = load_recent()?;
+    let (current_branch, branches) = load_recent()?;
     if branches.is_empty() {
         println!("No branches found");
         return Ok(());
     }
-    let current_branch = get_current_branch().unwrap_or_default();
+    // let current_branch = get_current_branch().unwrap_or_default();
 
     let mut app = App::new(branches, current_branch);
     app.run()
