@@ -98,7 +98,13 @@ impl App {
     fn render(&self) -> io::Result<()> {
         // Clear screen and render menu
         print!("\x1b[H\x1b[J");
-        println!("Select recent branch:\n");
+        println!("Select recent branch:");
+        print!("\x1b[G");
+        if self.offset > 0 {
+            println!("  \x1b[47;30m(less)\x1b[0m")
+        } else {
+            println!("  \x1b[30m(less)\x1b[0m")
+        }
         for (i, b) in self.branches[self.offset..(self.offset + NO_OF_VISIBLE_BRANCHES)]
             .iter()
             .enumerate()
@@ -111,6 +117,12 @@ impl App {
             } else {
                 println!(" {current_mark} {b}");
             }
+        }
+        print!("\x1b[G");
+        if self.offset + NO_OF_VISIBLE_BRANCHES < self.branches.len() {
+            println!("  \x1b[47;30m(more)\x1b[0m")
+        } else {
+            println!("  \x1b[30m(more)\x1b[0m")
         }
         io::stdout().flush()
     }
