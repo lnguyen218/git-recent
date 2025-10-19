@@ -183,6 +183,10 @@ impl App {
                     return Ok(Some(false));
                 }
             }
+                    3 => {
+            // Ctrl-C -> cancel
+            return Ok(Some(false));
+        }
             107 | 119 => {
                 // k | w
                 self.handle_up();
