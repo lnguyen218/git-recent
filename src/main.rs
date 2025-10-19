@@ -2,7 +2,7 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
-const MAX_BRANCHES: usize = 5;
+const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
 /// Load up to MAX_BRANCHES most recently committed branches.
 /// Returns an error if the git command fails.
@@ -19,13 +19,9 @@ fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
         .lines()
         .map(|s| {
             // branch lines will be like "* main" or "  feature"
-            s.trim()
-                .trim_start_matches('*')
-                .trim()
-                .to_string()
+            s.trim().trim_start_matches('*').trim().to_string()
         })
         .filter(|s| !s.is_empty())
-        .take(MAX_BRANCHES)
         .collect();
 
     Ok(branches)
@@ -86,6 +82,7 @@ struct App {
     branches: Vec<String>,
     current_branch: String,
     selected: usize,
+    offset: usize,
 }
 
 impl App {
@@ -93,6 +90,7 @@ impl App {
         App {
             branches,
             current_branch,
+            offset: 0,
             selected: 0,
         }
     }
@@ -101,10 +99,13 @@ impl App {
         // Clear screen and render menu
         print!("\x1b[H\x1b[J");
         println!("Select recent branch:\n");
-        for (i, b) in self.branches.iter().enumerate() {
+        for (i, b) in self.branches[self.offset..(self.offset + NO_OF_VISIBLE_BRANCHES)]
+            .iter()
+            .enumerate()
+        {
             print!("\x1b[G");
             let current_mark = if b == &self.current_branch { "*" } else { " " };
-            if i == self.selected {
+            if i == self.selected - self.offset {
                 // Highlight selection: blue background, black text
                 println!(" \x1b[44;30m{current_mark} {b}\x1b[0m");
             } else {
@@ -114,6 +115,23 @@ impl App {
         io::stdout().flush()
     }
 
+    fn handle_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+        if self.offset > self.selected {
+            self.offset -= 1;
+        }
+    }
+
+    fn handle_down(&mut self) {
+        if self.selected + 1 < self.branches.len() {
+            self.selected += 1;
+        }
+        if self.offset + NO_OF_VISIBLE_BRANCHES - 1 < self.selected {
+            self.offset += 1;
+        }
+    }
     /// Read a single key (or escape sequence) and update selected index accordingly.
     /// Returns true when user confirms selection (Enter/Space).
     fn handle_input(&mut self) -> io::Result<bool> {
@@ -131,15 +149,11 @@ impl App {
                     match buffer[2] {
                         65 => {
                             // Up Arrow
-                            if self.selected > 0 {
-                                self.selected -= 1;
-                            }
+                            self.handle_up()
                         }
                         66 => {
                             // Down Arrow
-                            if self.selected + 1 < self.branches.len() {
-                                self.selected += 1;
-                            }
+                            self.handle_down()
                         }
                         _ => {}
                     }
@@ -147,15 +161,11 @@ impl App {
             }
             107 | 119 => {
                 // k | w
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
+                self.handle_up()
             }
             106 | 115 => {
                 // j | s
-                if self.selected + 1 < self.branches.len() {
-                    self.selected += 1;
-                }
+                self.handle_down()
             }
             10 | 13 | 32 => {
                 // Enter (\n or \r) or Space
@@ -179,9 +189,6 @@ impl App {
             let chosen_clone = chosen.clone();
             self.branches.retain(|b| b != &chosen_clone);
             self.branches.insert(0, chosen_clone);
-            if self.branches.len() > MAX_BRANCHES {
-                self.branches.truncate(MAX_BRANCHES);
-            }
             Ok(true)
         } else {
             Err(format!("git checkout failed: {}", status).into())
