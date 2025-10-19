@@ -1,136 +1,236 @@
+use std::error::Error;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
-fn load_recent() -> Vec<String> {
+const MAX_BRANCHES: usize = 5;
+
+/// Load up to MAX_BRANCHES most recently committed branches.
+/// Returns an error if the git command fails.
+fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
     let output = Command::new("git")
         .args(["branch", "--sort=-committerdate"])
-        .output()
-        .expect("Failed to read branches");
-    let list = String::from_utf8_lossy(&output.stdout);
-    list.lines()
-        .map(|s| s.trim().trim_start_matches('*').trim().to_string())
+        .output()?;
+    if !output.status.success() {
+        return Err(format!("git branch failed: {}", output.status).into());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let branches: Vec<String> = stdout
+        .lines()
+        .map(|s| {
+            // branch lines will be like "* main" or "  feature"
+            s.trim()
+                .trim_start_matches('*')
+                .trim()
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
-        .take(5)
-        .collect()
+        .take(MAX_BRANCHES)
+        .collect();
+
+    Ok(branches)
 }
 
-fn get_current_branch() -> String {
+/// Get the current branch name (git branch --show-current).
+fn get_current_branch() -> Result<String, Box<dyn Error>> {
     let output = Command::new("git")
         .args(["branch", "--show-current"])
-        .output()
-        .expect("Failed to read branches");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+        .output()?;
+    if !output.status.success() {
+        return Err(format!("git show-current failed: {}", output.status).into());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn set_raw_mode(enable: bool) {
-    if cfg!(unix) {
-        let mode = if enable { "raw" } else { "-raw" };
-        let _ = Command::new("stty")
-            .arg(mode)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+/// RAII guard that enables raw mode while alive and restores terminal state on Drop.
+/// Uses `stty` on unix. On non-unix this is a no-op.
+struct RawModeGuard {
+    enabled: bool,
+}
+
+impl RawModeGuard {
+    fn new() -> Self {
+        let mut enabled = false;
+        if cfg!(unix) {
+            // Enable raw mode and disable echo for cleaner key handling.
+            let _ = Command::new("stty")
+                .arg("raw")
+                .arg("-echo")
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            enabled = true;
+        }
+        RawModeGuard { enabled }
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        if self.enabled && cfg!(unix) {
+            // Restore canonical mode and re-enable echo.
+            let _ = Command::new("stty")
+                .arg("-raw")
+                .arg("echo")
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+}
+
+/// Application state and logic.
+struct App {
+    branches: Vec<String>,
+    current_branch: String,
+    selected: usize,
+}
+
+impl App {
+    fn new(branches: Vec<String>, current_branch: String) -> Self {
+        App {
+            branches,
+            current_branch,
+            selected: 0,
+        }
+    }
+
+    fn render(&self) -> io::Result<()> {
+        // Clear screen and render menu
+        print!("\x1b[H\x1b[J");
+        println!("Select recent branch:\n");
+        for (i, b) in self.branches.iter().enumerate() {
+            print!("\x1b[G");
+            let current_mark = if b == &self.current_branch { "*" } else { " " };
+            if i == self.selected {
+                // Highlight selection: blue background, black text
+                println!(" \x1b[44;30m{current_mark} {b}\x1b[0m");
+            } else {
+                println!(" {current_mark} {b}");
+            }
+        }
+        io::stdout().flush()
+    }
+
+    /// Read a single key (or escape sequence) and update selected index accordingly.
+    /// Returns true when user confirms selection (Enter/Space).
+    fn handle_input(&mut self) -> io::Result<bool> {
+        // Buffer to accommodate escape sequences (e.g. "\x1b[<A>")
+        let mut buffer = [0u8; 3];
+        let n = io::stdin().read(&mut buffer)?;
+        if n == 0 {
+            return Ok(false);
+        }
+
+        match buffer[0] {
+            27 => {
+                // Escape sequences start with 27. Expecting at least 3 bytes for arrow keys.
+                if n >= 3 {
+                    match buffer[2] {
+                        65 => {
+                            // Up Arrow
+                            if self.selected > 0 {
+                                self.selected -= 1;
+                            }
+                        }
+                        66 => {
+                            // Down Arrow
+                            if self.selected + 1 < self.branches.len() {
+                                self.selected += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            107 | 119 => {
+                // k | w
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+            106 | 115 => {
+                // j | s
+                if self.selected + 1 < self.branches.len() {
+                    self.selected += 1;
+                }
+            }
+            10 | 13 | 32 => {
+                // Enter (\n or \r) or Space
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        Ok(false)
+    }
+
+    fn checkout_selected(&mut self) -> Result<bool, Box<dyn Error>> {
+        let chosen = &self.branches[self.selected];
+        println!("\x1b[H\x1b[J");
+        println!("\nChecking out branch: {chosen}");
+        print!("\x1b[G");
+
+        let status = Command::new("git").args(["checkout", chosen]).status()?;
+        if status.success() {
+            // Move chosen branch to the front of the list
+            let chosen_clone = chosen.clone();
+            self.branches.retain(|b| b != &chosen_clone);
+            self.branches.insert(0, chosen_clone);
+            if self.branches.len() > MAX_BRANCHES {
+                self.branches.truncate(MAX_BRANCHES);
+            }
+            Ok(true)
+        } else {
+            Err(format!("git checkout failed: {}", status).into())
+        }
+    }
+
+    fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        // Create RAII guard to restore terminal state on panic/exit.
+        let _raw_guard = RawModeGuard::new();
+
+        // Hide cursor
+        print!("\x1b[?25l");
+        io::stdout().flush()?;
+
+        loop {
+            self.render()?;
+            if self.handle_input()? {
+                break;
+            }
+        }
+
+        // Show cursor (RawModeGuard will restore the other state)
+        drop(_raw_guard);
+        print!("\x1b[?25h");
+        io::stdout().flush()?;
+
+        // Perform checkout and update history if successful
+        match self.checkout_selected() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
 fn main() {
-    // Load 5 most recent branches
-    let mut branches = load_recent();
-    let current_branch = get_current_branch();
+    if let Err(e) = run_app() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
 
+fn run_app() -> Result<(), Box<dyn Error>> {
+    let branches = load_recent()?;
     if branches.is_empty() {
         println!("No branches found");
-        return;
+        return Ok(());
     }
+    let current_branch = get_current_branch().unwrap_or_default();
 
-    set_raw_mode(true);
-    print!("\x1b[?25l");
-    io::stdout().flush().unwrap();
-
-    let mut selected = 0usize;
-
-    loop {
-        print!("\x1b[H\x1b[J");
-        println!("Select recent branch:\n");
-        for (i, b) in branches.iter().enumerate() {
-            let mut show_current = " ";
-            if *b == current_branch {
-                show_current = "*"
-            }
-            print!("\x1b[G");
-            if i == selected {
-                println!(" \x1b[44;30m{show_current} {b}\x1b[0m");
-            } else {
-                println!(" {show_current} {b}")
-            }
-        }
-        io::stdout().flush().unwrap();
-
-        let mut buffer = [0u8; 3];
-        if let Ok(n) = io::stdin().read(&mut buffer) {
-            if n == 0 {
-                continue;
-            }
-            match buffer[0] {
-                27 => {
-                    // Escape sequences start with 27
-                    if n >= 3 {
-                        match buffer[2] {
-                            65 => {
-                                // Up Arrow
-                                if selected > 0 {
-                                    selected -= 1;
-                                }
-                            }
-                            66 => {
-                                // Down Arrow
-                                if selected + 1 < branches.len() {
-                                    selected += 1;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                107 | 119 => {
-                    // k | w
-                    if selected > 0 {
-                        selected -= 1;
-                    }
-                }
-                106 | 115 => {
-                    // j | s
-                    if selected + 1 < branches.len() {
-                        selected += 1;
-                    }
-                }
-                10 | 13 | 32 => {
-                    // Enter key (\n or \r) or Spacebar
-                    break;
-                }
-                _ => {}
-            }
-        }
-    }
-
-    set_raw_mode(false);
-    println!("\x1b[?25h");
-
-    let chosen = branches[selected].clone();
-    print!("\x1b[H\x1b[J");
-    println!("\nChecking out branch: {chosen}");
-
-    let status = Command::new("git")
-        .args(["checkout", &chosen])
-        .status()
-        .expect("Failed to run git");
-
-    if status.success() {
-        branches.retain(|b| b != &chosen);
-        branches.insert(0, chosen);
-        if branches.len() > 5 {
-            branches.truncate(5);
-        }
-    }
+    let mut app = App::new(branches, current_branch);
+    app.run()
 }
