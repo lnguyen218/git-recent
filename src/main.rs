@@ -92,6 +92,7 @@ impl App {
     fn new(branches: Vec<String>, current_branch: String) -> Self {
         App {
             branches,
+            // TODO offset
             current_branch,
             selected: 0,
         }
@@ -100,6 +101,8 @@ impl App {
     fn render(&self) -> io::Result<()> {
         // Clear screen and render menu
         print!("\x1b[H\x1b[J");
+        // TODO remove debug statement
+        println!("Selected: {}\n\x1b[G", self.selected.to_string());
         println!("Select recent branch:\n");
         for (i, b) in self.branches.iter().enumerate() {
             print!("\x1b[G");
