@@ -2,6 +2,7 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
+const MAX_BRANCHES: usize = 200;
 const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
 /// Load up to MAX_BRANCHES most recently committed branches.
@@ -22,6 +23,7 @@ fn load_recent() -> Result<Vec<String>, Box<dyn Error>> {
             s.trim().trim_start_matches('*').trim().to_string()
         })
         .filter(|s| !s.is_empty())
+        .take(MAX_BRANCHES)
         .collect();
 
     Ok(branches)
@@ -144,50 +146,57 @@ impl App {
             self.offset += 1;
         }
     }
+
     /// Read a single key (or escape sequence) and update selected index accordingly.
     /// Returns true when user confirms selection (Enter/Space).
-    fn handle_input(&mut self) -> io::Result<bool> {
+        fn handle_input(&mut self) -> io::Result<Option<bool>> {
         // Buffer to accommodate escape sequences (e.g. "\x1b[<A>")
         let mut buffer = [0u8; 3];
         let n = io::stdin().read(&mut buffer)?;
         if n == 0 {
-            return Ok(false);
+            return Ok(None);
         }
 
         match buffer[0] {
             27 => {
-                // Escape sequences start with 27. Expecting at least 3 bytes for arrow keys.
+                // ESC. Try to read up to two more bytes (arrow sequences). If no more bytes arrive quickly,
+                // read will block - but arrow keys send bytes immediately so this works in practice.
                 if n >= 3 {
                     match buffer[2] {
-                        65 => {
-                            // Up Arrow
-                            self.handle_up()
-                        }
-                        66 => {
-                            // Down Arrow
-                            self.handle_down()
-                        }
+                        65 => self.handle_up(),   // Up Arrow
+                        66 => self.handle_down(), // Down Arrow
                         _ => {}
                     }
+                    return Ok(None)
+                } else {
+                    // Single ESC press -> treat as cancel
+                    return Ok(Some(false))
                 }
             }
             107 | 119 => {
                 // k | w
-                self.handle_up()
+                self.handle_up();
+                return Ok(None)
             }
             106 | 115 => {
                 // j | s
-                self.handle_down()
+                self.handle_down();
+                return Ok(None)
             }
             10 | 13 | 32 => {
                 // Enter (\n or \r) or Space
-                return Ok(true);
+                return Ok(Some(true))
             }
-            _ => {}
+            113 | 81 => {
+                // q | Q -> quit/cancel
+                return Ok(Some(false))
+            }
+            _ => return Ok(None),
         }
 
-        Ok(false)
+        Ok(Some(false))
     }
+
 
     fn checkout_selected(&mut self) -> Result<bool, Box<dyn Error>> {
         let chosen = &self.branches[self.selected];
@@ -207,7 +216,7 @@ impl App {
         }
     }
 
-    fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        fn run(&mut self) -> Result<(), Box<dyn Error>> {
         // Create RAII guard to restore terminal state on panic/exit.
         let _raw_guard = RawModeGuard::new();
 
@@ -215,10 +224,19 @@ impl App {
         print!("\x1b[?25l");
         io::stdout().flush()?;
 
+        let mut confirmed = false;
         loop {
             self.render()?;
-            if self.handle_input()? {
-                break;
+            match self.handle_input()? {
+                None => continue,
+                Some(true) => {
+                    confirmed = true;
+                    break;
+                }
+                Some(false) => {
+                    confirmed = false;
+                    break;
+                }
             }
         }
 
@@ -228,11 +246,16 @@ impl App {
         io::stdout().flush()?;
 
         // Perform checkout and update history if successful
-        match self.checkout_selected() {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
+        if confirmed {
+            match self.checkout_selected() {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e),
+            }
+        } else {
+            Ok(())
         }
     }
+
 }
 
 fn main() {
