@@ -5,6 +5,15 @@ use std::process::{Command, Stdio};
 const MAX_BRANCHES: usize = 200;
 const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
+const RESET: &str = "\x1b[0m";
+const CLEAR_SCREEN: &str = "\x1b[H\x1b[J";
+const PRIMARY_PAGINATION: &str = "\x1b[47;30m";
+const SECONDARY_PAGINATION: &str = "\x1b[30m";
+const HIGHLIGHT: &str = "\x1b[44;30m";
+const CURSOR_TO_LEFT: &str = "\x1b[G";
+const HIDE_CURSOR: &str = "\x1b[?25l";
+const SHOW_CURSOR: &str = "\x1b[?25h";
+
 /// Load up to MAX_BRANCHES most recently committed branches.
 /// Returns an error if the git command fails.
 fn load_recent() -> Result<(String, Vec<String>), Box<dyn Error>> {
@@ -109,13 +118,13 @@ impl App {
 
     fn render(&self) -> io::Result<()> {
         // Clear screen and render menu
-        print!("\x1b[H\x1b[J");
+        print!("{CLEAR_SCREEN}");
         println!("Select recent branch:");
-        print!("\x1b[G");
+        print!("{CURSOR_TO_LEFT}");
         if self.offset > 0 {
-            println!("  \x1b[47;30m(less)\x1b[0m")
+            println!("  {PRIMARY_PAGINATION}(less){RESET}")
         } else {
-            println!("  \x1b[30m(less)\x1b[0m")
+            println!("  {SECONDARY_PAGINATION}(less){RESET}")
         }
         for (i, b) in self
             .branches
@@ -124,20 +133,20 @@ impl App {
             .take(NO_OF_VISIBLE_BRANCHES)
             .enumerate()
         {
-            print!("\x1b[G");
+            print!("{CURSOR_TO_LEFT}");
             let current_mark = if b == &self.current_branch { "*" } else { " " };
             if i == self.selected - self.offset {
                 // Highlight selection: blue background, black text
-                println!(" \x1b[44;30m{current_mark} {b}\x1b[0m");
+                println!(" {HIGHLIGHT}{current_mark} {b}{RESET}");
             } else {
                 println!(" {current_mark} {b}");
             }
         }
-        print!("\x1b[G");
+        print!("{CURSOR_TO_LEFT}");
         if self.offset + NO_OF_VISIBLE_BRANCHES < self.branches.len() {
-            println!("  \x1b[47;30m(more)\x1b[0m")
+            println!("  {PRIMARY_PAGINATION}(more){RESET}")
         } else {
-            println!("  \x1b[30m(more)\x1b[0m")
+            println!("  {SECONDARY_PAGINATION}(more){RESET}")
         }
         io::stdout().flush()
     }
@@ -186,9 +195,9 @@ impl App {
 
     fn checkout_selected(&mut self) -> Result<bool, Box<dyn Error>> {
         let chosen = &self.branches[self.selected];
-        println!("\x1b[H\x1b[J");
+        println!("{CLEAR_SCREEN}");
         println!("\nChecking out branch: {chosen}");
-        print!("\x1b[G");
+        print!("{CURSOR_TO_LEFT}");
 
         let status = Command::new("git").args(["checkout", chosen]).status()?;
         if status.success() {
@@ -207,7 +216,7 @@ impl App {
         let _raw_guard = RawModeGuard::new();
 
         // Hide cursor
-        print!("\x1b[?25l");
+        print!("{HIDE_CURSOR}");
         io::stdout().flush()?;
 
         let mut confirmed = false;
@@ -228,7 +237,7 @@ impl App {
 
         // Show cursor (RawModeGuard will restore the other state)
         drop(_raw_guard);
-        print!("\x1b[?25h");
+        print!("{SHOW_CURSOR}");
         io::stdout().flush()?;
 
         // Perform checkout and update history if successful
