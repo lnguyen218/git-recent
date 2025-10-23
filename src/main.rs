@@ -117,8 +117,11 @@ impl App {
         } else {
             println!("  \x1b[30m(less)\x1b[0m")
         }
-        for (i, b) in self.branches[self.offset..(self.offset + NO_OF_VISIBLE_BRANCHES)]
+        for (i, b) in self
+            .branches
             .iter()
+            .skip(self.offset)
+            .take(NO_OF_VISIBLE_BRANCHES)
             .enumerate()
         {
             print!("\x1b[G");
