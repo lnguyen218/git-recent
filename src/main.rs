@@ -215,7 +215,6 @@ impl App {
         // Create RAII guard to restore terminal state on panic/exit.
         let _raw_guard = RawModeGuard::new();
 
-        // Hide cursor
         print!("{HIDE_CURSOR}");
         io::stdout().flush()?;
 
@@ -235,12 +234,10 @@ impl App {
             }
         }
 
-        // Show cursor (RawModeGuard will restore the other state)
         drop(_raw_guard);
         print!("{SHOW_CURSOR}");
         io::stdout().flush()?;
 
-        // Perform checkout and update history if successful
         if confirmed {
             match self.checkout_selected() {
                 Ok(_) => Ok(()),
