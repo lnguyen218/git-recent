@@ -5,13 +5,13 @@ use std::process::{Command, Stdio};
 const MAX_BRANCHES: usize = 200;
 const NO_OF_VISIBLE_BRANCHES: usize = 5;
 
-const RESET: &str = "\x1b[0m";
 const CLEAR_SCREEN: &str = "\x1b[H\x1b[J";
-const PRIMARY_PAGINATION: &str = "\x1b[47;30m";
-const SECONDARY_PAGINATION: &str = "\x1b[30m";
-const HIGHLIGHT: &str = "\x1b[44;30m";
 const CURSOR_TO_LEFT: &str = "\x1b[G";
 const HIDE_CURSOR: &str = "\x1b[?25l";
+const HIGHLIGHT: &str = "\x1b[44;30m";
+const RESET: &str = "\x1b[0m";
+const PRIMARY_PAGINATION: &str = "\x1b[47;30m";
+const SECONDARY_PAGINATION: &str = "\x1b[30m";
 const SHOW_CURSOR: &str = "\x1b[?25h";
 
 /// Load up to MAX_BRANCHES most recently committed branches.
