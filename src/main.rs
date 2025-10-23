@@ -170,48 +170,18 @@ impl App {
             return Ok(None);
         }
 
-        match buffer[0] {
-            27 => {
-                // ESC. Try to read up to two more bytes (arrow sequences). If no more bytes arrive quickly,
-                // read will block - but arrow keys send bytes immediately so this works in practice.
-                if n >= 3 {
-                    match buffer[2] {
-                        65 => self.handle_up(),   // Up Arrow
-                        66 => self.handle_down(), // Down Arrow
-                        _ => {}
-                    }
-                    return Ok(None);
-                } else {
-                    // Single ESC press -> treat as cancel
-                    return Ok(Some(false));
-                }
-            }
-            3 => {
-                // Ctrl-C -> cancel
-                return Ok(Some(false));
-            }
-            107 | 119 => {
-                // k | w
-                self.handle_up();
-                return Ok(None);
-            }
-            106 | 115 => {
-                // j | s
-                self.handle_down();
-                return Ok(None);
-            }
-            10 | 13 | 32 => {
-                // Enter (\n or \r) or Space
-                return Ok(Some(true));
-            }
-            113 | 81 => {
-                // q | Q -> quit/cancel
-                return Ok(Some(false));
-            }
-            _ => return Ok(None),
+        match &buffer[..n] {
+            // Up Arrow | k | w
+            [27, 91, 65] | [107] | [119] => self.handle_up(),
+            // Down Arrow | j | s
+            [27, 91, 66] | [106] | [115] => self.handle_down(),
+            // Enter (\n or \r) or Space
+            [10] | [13] | [32] => return Ok(Some(true)),
+            // Ctrl-C | q | Q | ESC
+            [3] | [81] | [113] | [27] => return Ok(Some(false)),
+            _ => {}
         }
-
-        Ok(Some(false))
+        return Ok(None);
     }
 
     fn checkout_selected(&mut self) -> Result<bool, Box<dyn Error>> {
