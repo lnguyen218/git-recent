@@ -256,7 +256,6 @@ fn run_app() -> Result<(), Box<dyn Error>> {
         println!("No branches found");
         return Ok(());
     }
-    // let current_branch = get_current_branch().unwrap_or_default();
 
     let mut app = App::new(branches, current_branch);
     app.run()
